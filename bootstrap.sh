@@ -17,20 +17,9 @@
 # You should have received a copy of the GNU General Public License
 # along with BrewPi Tools RMX. If not, see <https://www.gnu.org/licenses/>.
 
-# These scripts were originally a part of brewpi-tools, an installer for
-# the BrewPi project. Legacy support (for the very popular Arduino
-# controller) seems to have been discontinued in favor of new hardware.
-
-# All credit for the original brewpi-tools goes to @elcojacobs,
-# @vanosg, @routhcr, @ajt2 and I'm sure many more contributors around
-# the world. My apologies if I have missed anyone; those were the names
-# listed as contributors on the Legacy branch.
-
-# See: 'original-license.md' for notes about the original project's
-# license and credits.
-
 # Set branch
 BRANCH=master
+MINVER=10
 
 ############
 ### Global Declarations
@@ -40,6 +29,8 @@ BRANCH=master
 declare THISSCRIPT GITBRNCH GITURL GITPROJ PACKAGE CHAMBER VERBOSE
 declare REPLY SOURCE SCRIPTSOURCE SCRIPTPATH CHAMBERNAME CMDLINE GITRAW GITHUB
 declare SCRIPTNAME GITCMD GITTEST APTPACKAGES VERBOSE LINK
+# Un-Pi constants
+declare ID VERSION ISPI
 # Color/character codes
 declare BOLD SMSO RMSO FGBLK FGRED FGGRN FGYLW FGBLU FGMAG FGCYN FGWHT FGRST
 declare BGBLK BGRED BGGRN BGYLW BGBLU BGMAG BGCYN BGWHT BGRST DOT HHR LHR RESET
@@ -69,6 +60,10 @@ init() {
     GITTEST="$GITHUB"
     # Packages to be installed/checked via apt
     APTPACKAGES="git"
+
+    # Un-Pi Stuff
+    ID=$(cat /etc/*-release | grep -e '^ID=' | cut -d '=' -f 2) # debian | raspbian
+    VERSION=$(cat /etc/*-release | grep -e '^VERSION_ID' | cut -d '=' -f 2 | tr -d '"') # 10
 }
 
 ############
@@ -139,7 +134,7 @@ log() {
 ### Command line arguments
 ############
 
-# usage outputs to stdout the --help usage message.
+# Usage outputs to stdout the --help usage message.
 usage() {
 cat << EOF
 
@@ -149,7 +144,7 @@ Usage: sudo ./$THISSCRIPT"
 EOF
 }
 
-# version outputs to stdout the --version message.
+# Version outputs to stdout the --version message.
 version() {
 cat << EOF
 
@@ -322,8 +317,19 @@ EOF
 }
 
 ############
-### Check for default 'pi' password and gently prompt to change it now
+### Check to see if we are running Raspbian on a Pi
 ############
+
+checkpi() {
+    if [ "$ID" == "raspbian" ] && [ "$VERSION" -ge "$MINVER" ]; then
+        ISPI=true
+    else
+        ISPI=false
+    fi
+}
+
+############
+### Check for default 'pi' password and gently prompt to change it now
 
 checkpass() {
     local user_exists salt extpass match badpwd yn setpass
@@ -437,7 +443,7 @@ packages() {
     local lastUpdate nowTime pkgOk upgradesAvail pkg
     echo -e "\nUpdating any expired apt keys."
     for K in $(apt-key list 2> /dev/null | grep expired | cut -d'/' -f2 | cut -d' ' -f1); do
-	    sudo apt-key adv --recv-keys --keyserver keys.gnupg.net $K;
+	    eval "sudo apt-key adv --recv-keys --keyserver keys.gnupg.net $K";
     done
     echo -e "\nFixing any broken installations."
     sudo apt-get --fix-broken install -y||die
@@ -506,9 +512,9 @@ check_brewpi() {
 clonetools() {
     echo -e "\nCloning $GITPROJ repo."
     eval "sudo -u $REALUSER git clone $GITCMD $HOMEPATH/$GITPROJ"||die
-    cd "$HOMEPATH/$GITPROJ"
+    cd "$HOMEPATH/$GITPROJ"||die
     eval "sudo -u $REALUSER git checkout $GITBRNCH"||die
-    cd "$HOMEPATH"
+    cd "$HOMEPATH"||die
 }
 
 ############
@@ -519,18 +525,17 @@ main() {
     [[ "$*" == *"-verbose"* ]] && VERBOSE=true # Do not trim logs
     log "$@" # Start logging
     init "$@" # Get constants
+    checkpi "$@" # Determine if we are running on Raspberry Pi on Raspbian
     arguments "$@" # Check command line arguments
-    echo -e "\n***Script $THISSCRIPT starting.***\n"
-    sysver="$(cat "/etc/os-release" | grep 'PRETTY_NAME' | cut -d '=' -f2)"
-    sysver="$(sed -e 's/^"//' -e 's/"$//' <<<"$sysver")"
-    echo -e "\nRunning on: $sysver\n"
+    echo -e "\n***Script $THISSCRIPT starting.***"
+    echo -e "\nRunning on: ${ID^}, version $VERSION."  
     checkroot # Make sure we are su into root
     term # Add term command constants
     instructions # Show instructions
     check_brewpi # See if BrewPi is installed
-    checkpass # Check for default password
-    settime # Set timezone
-    host_name # Change hostname
+    [ "$ISPI" ] && checkpass # Check for default password on Pi
+    [ "$ISPI" ] && settime # Set timezone on Pi
+    [ "$ISPI" ] && host_name # Change hostname on Pi
     packages # Install and update required packages
     clonetools # Clone tools repo
     eval "$HOMEPATH/$GITPROJ/install.sh -nolog" || die # Start installer
