@@ -19,7 +19,7 @@
 
 # Set branch
 BRANCH=master
-MINVER=10
+MINDEBVER=10
 
 ############
 ### Global Declarations
@@ -30,7 +30,7 @@ declare THISSCRIPT GITBRNCH GITURL GITPROJ PACKAGE CHAMBER VERBOSE
 declare REPLY SOURCE SCRIPTSOURCE SCRIPTPATH CHAMBERNAME CMDLINE GITRAW GITHUB
 declare SCRIPTNAME GITCMD GITTEST APTPACKAGES VERBOSE LINK
 # Un-Pi constants
-declare ID VERSION ISPI
+declare ID VERSION ISPI GOODPI
 # Color/character codes
 declare BOLD SMSO RMSO FGBLK FGRED FGGRN FGYLW FGBLU FGMAG FGCYN FGWHT FGRST
 declare BGBLK BGRED BGGRN BGYLW BGBLU BGMAG BGCYN BGWHT BGRST DOT HHR LHR RESET
@@ -317,11 +317,11 @@ EOF
 }
 
 ############
-### Check to see if we are running Raspbian on a Pi
+### Check to see if we are running a Raspberry Pi
 ############
 
-checkpi() {
-    if [ "$ID" == "raspbian" ] && [ "$VERSION" -ge "$MINVER" ]; then
+ispi() {
+    if [[ $(grep Hardware /proc/cpuinfo | cut -d " " -f 2) == BCM* ]]; then
         ISPI=true
     else
         ISPI=false
@@ -329,7 +329,40 @@ checkpi() {
 }
 
 ############
+### Check to see if we are running supported Raspbian
+############
+
+goodpi() {
+    if [ "$ID" == "raspbian" ] && [ "$VERSION" -ge "$MINDEBVER" ]; then
+        GOODPI=true
+    else
+        GOODPI=false
+    fi
+}
+
+############
+### Version Tests
+############
+
+verlte() { # Version is less than or equal to (<=)
+    [  "$1" = "`echo -e "$1\n$2" | sort -V | head -n1`" ]
+}
+
+verlt() { # Version is less than (=)
+    [ "$1" = "$2" ] && return 1 || verlte $1 $2
+}
+
+vergte() { # Version is greater than or equal to (>=)
+    return $(verlte $2 $1)
+}
+
+vergt() { # Version is greater than (>)
+    return $(verlt $2 $1)
+}
+
+############
 ### Check for default 'pi' password and gently prompt to change it now
+############
 
 checkpass() {
     local user_exists salt extpass match badpwd yn setpass
@@ -522,10 +555,12 @@ clonetools() {
 ############
 
 main() {
+    # TODO:  Check to make sure we are Debian of some sort
     [[ "$*" == *"-verbose"* ]] && VERBOSE=true # Do not trim logs
     log "$@" # Start logging
     init "$@" # Get constants
-    checkpi "$@" # Determine if we are running on Raspberry Pi on Raspbian
+    ispi "$@" # Determine if we are running on a Raspberry Pi
+    goodpi "$@" # Determine if we are running supported Raspbian
     arguments "$@" # Check command line arguments
     echo -e "\n***Script $THISSCRIPT starting.***"
     echo -e "\nRunning on: ${ID^}, version $VERSION."  
@@ -533,9 +568,9 @@ main() {
     term # Add term command constants
     instructions # Show instructions
     check_brewpi # See if BrewPi is installed
-    [ "$ISPI" ] && checkpass # Check for default password on Pi
-    [ "$ISPI" ] && settime # Set timezone on Pi
-    [ "$ISPI" ] && host_name # Change hostname on Pi
+    [ "$GOODPI" ] && checkpass # Check for default password on Raspbian
+    [ "$GOODPI" ] && settime # Set timezone on Raspbian
+    [ "$GOODPI" ] && host_name # Change hostname on Raspbian
     packages # Install and update required packages
     clonetools # Clone tools repo
     eval "$HOMEPATH/$GITPROJ/install.sh -nolog" || die # Start installer
